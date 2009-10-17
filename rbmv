@@ -1,0 +1,46 @@
+#! /usr/bin/env ruby
+$:.unshift(File.join(File.dirname($0), 'lib'))
+require 'getopt'
+
+argv = GetOpt.new($*, %w'
+  d|dry
+  l|ls=s
+  o|option=s
+  h|help
+', { :ls => 'ls -1b', :option => '' })
+
+if argv[:help]
+  print <<"EOM"
+Usage: rbmv [-d] [-l="ls -1b"] [-o=<none>] pattern replacement
+When --dry is specified, rbmv will act as:
+  <ls> | xargs -i rbsub -s '{}' '<pattern>' '\\"{}\\" -> \\"<replacement>\\"'
+otherwise, rbmv will act as:
+  <ls> | xargs -i rbsub -sx '{}' '<pattern>' 'mv <opt> \\"{}\\" \\"<replacement>\\"'
+Options:
+  -d, --dry      print the result but do not actually rename
+  -l, --ls       command to make a list of paths
+  -o, --opt      options for mv command
+Example:
+  [1] rbmv '/.*(\\d\\d\\d\\d-\\d\\d-\\d\\d).*(\\....)/' '\#\{$1\}\#\{$2\}'
+    "aaa2007-10-14bbb.ext" -> "2007-10-14.ext"
+  [2] rbmv '/(.*)\\.PDF/i' '\#\{$1.upcase\}.pdf'
+    "something.pdf" -> "SOMETHING.pdf"
+EOM
+  exit
+end
+
+pat, rep = argv.args + argv.rest
+if argv[:dry]
+  cmd =
+    [
+     argv[:ls],
+     "xargs -i rbsub -s '{}' '#{pat}' '\\\"{}\\\" -> \\\"#{rep}\\\"'"
+    ].join(' | ')
+else
+  cmd =
+    [
+     argv[:ls],
+     "xargs -i rbsub -sx '{}' '#{pat}' 'mv #{mvopt} \\\"{}\\\" \\\"#{rep}\\\"'"
+    ].join(' | ')
+end
+system(cmd)

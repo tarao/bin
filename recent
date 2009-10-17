@@ -1,0 +1,42 @@
+#! /usr/bin/env ruby
+$:.unshift(File.join(File.dirname($0), 'lib'))
+require 'getopt'
+
+dargv = { :time => 10, :user => false, :less => true }
+argv = GetOpt.new($*, %w'
+  t|time=i
+  u|user
+  l|ls=s
+  less
+  h|help
+', dargv)
+if argv[:help]
+  t = dargv[:time]
+  u = dargv[:user] ? 'on' : 'off'
+  nl = dargv[:less] ? 'off' : 'on'
+  puts <<"EOM"
+Usage: #{File.basename($0)} [-t n] [-l list] [--less] [-u] [-h] [pattern]
+Show recently changed files in the current directory and its subdirectories.
+Options:
+  -t, --time    Show files changed less than n*24 hours ago (default: #{t}).
+  -u, --user    Show files owned by the current user (default: #{u}).
+  -l, --ls      ls command (default: ls --color=always -dlh).
+  --no-less     Do not use less for output (default: #{nl}).
+  -h, --help    Show help.
+Example:
+  #{File.basename($0)} -t 3 '*.wv'
+EOM
+  exit
+end
+
+time = argv[:time]
+pattern = argv.args.join(' ')
+cmd = "find * \\( -ctime -#{time} -o -mtime -#{time} \\)"
+cmd += " -a -name '#{pattern}'" if pattern.size > 0
+cmd += " -a \\( -not -user #{ENV['USER']} \\)" unless argv[:user]
+cmd += " -exec #{argv[:ls] || 'ls --color=always -dlh'} '{}' ';'"
+if !argv[:less]
+  print(`#{cmd}`)
+else
+  system(cmd + ' | less -R')
+end

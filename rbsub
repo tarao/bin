@@ -1,0 +1,39 @@
+#! /usr/bin/env ruby
+$:.unshift(File.join(File.dirname($0), 'lib'))
+require 'getopt'
+
+argv = GetOpt.new($*, %w'
+  s|ensure
+  x|execute
+  h|help
+')
+
+if argv[:help]
+  print <<"EOM"
+Usage: #{File.basename($0)} [-sx] string expression1 expression2
+
+Matches expression1 against string and make output described by
+expression2. Values of string, expression1 and expression2 can be
+referred in expression2 using notation of '\#\{varname\}'.
+
+Options:
+  -s, --ensure    do nothing when the match failed
+  -x, --execute   execute a string described by expression2 as a command
+Example:
+  $ rbsub 'foo bar' '/.(.).*B.*/i' 'h\#\{$1.upcase\}ge'
+  hOge
+EOM
+  exit
+end
+
+str, exp1, exp2 = argv.args + argv.rest
+match = instance_eval("\"#{str}\" =~ #{exp1}")
+f = argv[:execute] ? proc{|v| system(v)} : proc{|v| puts v}
+if match
+  f.call(instance_eval("\"#{exp2}\""))
+elsif argv[:ensure]
+  # do nothing
+elsif !argv[:ensure]
+  # use original string
+  f.call(str)
+end

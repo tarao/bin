@@ -1,0 +1,2 @@
+#! /usr/bin/env ruby
+puts(ARGF.read.split(/\s*[\r\n]+\s*/).join(' '))

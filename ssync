@@ -1,0 +1,82 @@
+#! /usr/bin/env ruby
+$:.unshift(File.join(File.dirname($0), 'lib'))
+require 'getopt'
+require 'file/kind'
+require 'fileutils'
+require 'fileutils/sync'
+
+argv = GetOpt.new($*, %w'
+  f|force
+  L|follow
+  i|interactive
+  h|help
+')
+
+if argv[:help]
+  print <<"EOM"
+Usage: #{File.basename($0)} [-fLih] src dst
+Simply synchronize two directories.
+Options:
+  -f, --force        Force to copy when two files have different file types.
+  -L, --follow       Follow symbolic links.
+  -i, --interactive  Ask before override.
+  -h, --help         Show help.
+EOM
+  exit
+end
+
+files = {
+  :src => (argv.rest+argv.args)[0],
+  :dst => (argv.rest+argv.args)[1],
+}
+exit if files.map{|k,v| !v && !warn("#{k} not specified")}.any?
+exit if !File.exist?(files[:src]) && !warn("no such file '#{file[:src]}'")
+
+cp = proc do |src, dst|
+  FileUtils.copy_entry(src, dst)
+  puts("#{src} -> #{dst}")
+end
+
+force = proc do |src, dst|
+  FileUtils.rm_rf(dst) if File.kind(src, true) != File.kind(dst, true)
+  FileUtils.copy_entry(src, dst)
+  puts("#{src} -> #{dst}")
+end
+
+def interact(p)
+  return proc do |src, dst|
+    if File.exist?(dst)
+      k = [ src, nil, dst ].map{|f| f ? File.kind(f, true).to_s : ''}
+      f = [ src, '-?->', dst ]
+      fields = k.zip(f).map{|a|n=a.map{|s|s.length}.max;a.map{|s|s.center(n)}}
+      puts
+      puts(fields.map{|f| f.first}.join(' '))
+      print(fields.map{|f| f.last}.join(' ')+' [f]: ')
+
+      input = gets.strip
+      p.call(src, dst) if input.empty? || input[0].chr == 'f'
+    else
+      p.call(src, dst)
+    end
+  end
+end
+
+opt = {
+  :method => {
+    :uptodate => argv[:interactive] ? interact(cp) : cp,
+    :nothing  => argv[:interactive] ? interact(cp) : proc{},
+    :conflict => proc{|src, dst| puts("#{src} <-!-> #{dst}")},
+  },
+  :flag => File::FNM_DOTMATCH,
+  :nofollow => !argv[:follow],
+}
+if argv[:force]
+  f = argv[:interactive] ? interact(force) : force
+  opt[:method] = {
+    :uptodate => f,
+    :nothing  => f,
+    :conflict => f,
+  }
+end
+
+FileUtils.sync(files[:src], files[:dst], opt)

@@ -1,0 +1,31 @@
+#! /usr/bin/env ruby
+$:.unshift(File.join(File.dirname($0), 'lib'))
+require 'getopt'
+
+argv = GetOpt.new($*, %w'
+  u|user=s
+  d|dir=s
+  h|help
+')
+if argv[:help]
+  puts <<"EOM"
+Usage: #{File.basename($0)} [-u user] [-d dir] [-h]
+Show PID of programs running on the given directory.
+Options:
+  -u, --user   User name.
+  -d, --dir    Working directory.
+  -h, --help   Show help.
+EOM
+  exit
+end
+argv[:user] ||= ENV['USER']
+
+cmd =
+[
+ "lsof -u #{argv[:user]} -F 0pcfn | tr '\\0' '\\t'",
+ "| sed -n -e '/^\\([^f]\\|fcwd\\)/p' | sed -n -e N -e 's/\\n//' -e p",
+ argv[:dir] ? "| grep '\tn#{argv[:dir]}'" : '',
+ "| sed -e 's/^p\\([0-9]*\\)\\tc\\([^\\t]*\\)\\tf[^\\t]*\\tn\\(.*\\)$/" +
+ "\\1\\t\\2\\t\\3/'",
+].join(' ')
+puts(`#{cmd}`)

@@ -1,0 +1,40 @@
+#! /usr/bin/env ruby
+$:.unshift(File.join(File.dirname($0), 'lib'))
+require 'getopt'
+
+argv = GetOpt.new($*, %w'
+  l|ls=s
+  p|ps=s
+  h|help
+')
+
+if argv[:help]
+  print <<"EOM"
+Usage: #{File.basename($0)} [-l ls] [-p ps]
+Show who is using the system according to ps command.
+Options:
+  -l, --ls       List of usernames separated by \\n.
+                 If the username contains a pattern */,
+                 that part of string will be ignored.
+                 Default value is `cat /etc/passwd | cut -d : -f 1`.
+  -p, --ps       The ps command.
+                 Default value is "ps"
+  -h, --help     Show help.
+Example:
+  [1] pswho -l `ypcat passwd | cut -d : -f 1`
+      Lists users managed by NIS.
+  [2] pswho -p "ssh hostname ps"
+      Lists users of remote host.
+EOM
+  exit
+end
+
+(argv[:ls] || `cat /etc/passwd | cut -d : -f 1`).each_line do |u|
+  u.strip!
+  u = $1 if u =~ /.*\/([^\/]*)/
+  r = `#{argv[:ps] || 'ps'} -U #{u} -u #{u} -o comm h --sort=start 2>/dev/null`
+  if $? == 0
+    list = u + ": " + r.split("\n").reverse.join(' ')
+    puts(list[0, `tput -T xterm cols`.to_i-1])
+  end
+end
