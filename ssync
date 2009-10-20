@@ -5,12 +5,27 @@ require 'file/kind'
 require 'fileutils'
 require 'fileutils/sync'
 
+class TrueClass
+  def to_i
+    return 1
+  end
+end
+
+class FalseClass
+  def to_i
+    return 0
+  end
+end
+
 argv = GetOpt.new($*, %w'
   f|force
-  L|follow
   i|interactive
+  L|follow
+  a|all
+  u|update
+  s|symbolic
   h|help
-')
+', { :update => true })
 
 if argv[:help]
   print <<"EOM"
@@ -18,8 +33,13 @@ Usage: #{File.basename($0)} [-fLih] src dst
 Simply synchronize two directories.
 Options:
   -f, --force        Force to copy when two files have different file types.
-  -L, --follow       Follow symbolic links.
   -i, --interactive  Ask before override.
+                     If it is given more than once, ask always.
+  -L, --follow       Follow symbolic links.
+  -a, --all          Do not ignore entries starting with '.'.
+  -u, --update       Copy when source file is newer than destination.
+                     This is the default behaviour.
+  -s, --symbolic     Create symbolic link instead of copying.
   -h, --help         Show help.
 EOM
   exit
@@ -37,15 +57,25 @@ cp = proc do |src, dst|
   puts("#{src} -> #{dst}")
 end
 
-force = proc do |src, dst|
-  FileUtils.rm_rf(dst) if File.kind(src, true) != File.kind(dst, true)
-  FileUtils.copy_entry(src, dst)
+symlink = proc do |src, dst|
+  FileUtils.ln_s(src, dst)
   puts("#{src} -> #{dst}")
 end
 
-def interact(p)
+conflict = proc do |src, dst|
+  puts("#{src} <-!-> #{dst}")
+end
+
+def force(m)
   return proc do |src, dst|
-    if File.exist?(dst)
+    FileUtils.rm_rf(dst)
+    m.call(src, dst)
+  end
+end
+
+def interact(m, level=1)
+  return proc do |src, dst|
+    if File.exist?(dst) || level > 1
       k = [ src, nil, dst ].map{|f| f ? File.kind(f, true).to_s : ''}
       f = [ src, '-?->', dst ]
       fields = k.zip(f).map{|a|n=a.map{|s|s.length}.max;a.map{|s|s.center(n)}}
@@ -54,29 +84,30 @@ def interact(p)
       print(fields.map{|f| f.last}.join(' ')+' [f]: ')
 
       input = gets.strip
-      p.call(src, dst) if input.empty? || input[0].chr == 'f'
+      m.call(src, dst) if input.empty? || input[0].chr == 'f'
     else
-      p.call(src, dst)
+      m.call(src, dst)
     end
   end
 end
 
+method = argv[:symbolic] ? symlink : cp
+method = force(method) if argv[:force]
+method = interact(method, argv[:interactive].to_i) if argv[:interactive]
+
+nothing = proc{}
+nothing = method if !argv[:update] || argv[:force].to_i > 1
+
+conflict = method if argv[:force]
+
 opt = {
   :method => {
-    :uptodate => argv[:interactive] ? interact(cp) : cp,
-    :nothing  => argv[:interactive] ? interact(cp) : proc{},
-    :conflict => proc{|src, dst| puts("#{src} <-!-> #{dst}")},
+    :uptodate => method,
+    :nothing  => nothing,
+    :conflict => conflict,
   },
-  :flag => File::FNM_DOTMATCH,
+  :flag => (argv[:all] && File::FNM_DOTMATCH) ||  0,
   :nofollow => !argv[:follow],
 }
-if argv[:force]
-  f = argv[:interactive] ? interact(force) : force
-  opt[:method] = {
-    :uptodate => f,
-    :nothing  => f,
-    :conflict => f,
-  }
-end
 
 FileUtils.sync(files[:src], files[:dst], opt)
