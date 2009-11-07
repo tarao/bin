@@ -37,6 +37,7 @@ if argv[:dry]
      "xargs -i rbsub -s '{}' '#{pat}' '\\\"{}\\\" -> \\\"#{rep}\\\"'"
     ].join(' | ')
 else
+  mvopt = arg[:option]
   cmd =
     [
      argv[:ls],
