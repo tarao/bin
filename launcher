@@ -1,0 +1,230 @@
+#! /usr/bin/env ruby
+$:.unshift(File.join(File.dirname($0), 'lib'))
+require 'rubygems'
+require 'getopt'
+require 'yaml'
+
+name = File.basename($0)
+conf =
+  [
+   name + '.yml',
+   File.join(ENV['HOME'], '.launch', 'config.yml'),
+  ]
+conf = conf.find{|f| File.exist?(f)}
+
+class Launcher
+  class Command
+    def initialize(name, conf, dir, argv)
+      @name = name
+      @conf = conf
+      @dir = dir
+      @argv = argv
+    end
+
+    def list
+      system("ls #{@dir}")
+    end
+
+    def err(what)
+      cmd = self.class.to_s.split('::').last.downcase
+      warn("#{@name} #{cmd}: #{what}")
+    end
+
+    def check(obj)
+      obj.each do |k,v|
+        if !v || v.empty?
+          err("<#{k}> is not specified.")
+          return
+        end
+      end
+      return obj
+    end
+
+    def get_name
+      return (check(:name => @argv.args.shift) || {})[:name]
+    end
+  end
+
+  class List < Command
+    def do
+      list
+    end
+
+    def help
+      print <<EOM
+Usage: #{@name} list
+Show the list of registered programs.
+EOM
+    end
+  end
+
+  class Add < Command
+    def do
+      # name
+      name = get_name
+      return unless name
+
+      # working directory
+      wdir = nil # @conf[@name][:wd]
+      if @argv.args[0] == '-w'
+        @argv.args.shift # drop '-w'
+        wdir = @argv.args.shift
+      end
+
+      # program path
+      path = (check(:path => @argv.args.shift) || {})[:path]
+      return unless path
+
+      # arguments
+      args = @argv.to_s
+
+      # specification
+      spec = {
+        :path => path,
+        :args => args,
+      }
+      spec[:wdir] = wdir if wdir
+
+      # write
+      file = File.join(@dir, name)
+      open(file, 'w'){|io| io.puts(spec.to_yaml)}
+      File.chmod(@conf[:permission], file) if @conf[:permission]
+    end
+
+    def help
+      print <<EOM
+Usage: #{@name} add <name> [-w <working directory>] <path> ...
+Register <path> as <name>.
+EOM
+    end
+  end
+
+  class Del < Command
+    def do
+      name = get_name
+      file = File.join(@dir, name||'')
+      if name && File.exist?(file)
+        File.delete(File.join(@dir, name))
+      else
+        err("'#{name}' not found.") if name
+        list
+      end
+    end
+
+    def help
+      print <<EOM
+Usage: #{@name} del <name>
+Unregister <name> from the list.
+EOM
+    end
+  end
+
+  class Where < Command
+    def do
+      name = get_name
+      file = File.join(@dir, name||'')
+      if name && File.exist?(file)
+        puts(IO.read(File.join(@dir, name)))
+      else
+        err("'#{name}' not found.") if name
+        list
+      end
+    end
+
+    def help
+      print <<EOM
+Usage: #{@name} where <name>
+Show which path is bound to <name>.
+EOM
+    end
+  end
+
+  class Run < Command
+    def do
+      name = get_name
+      file = File.join(@dir, name||'')
+      if name && File.exist?(file)
+        spec = YAML.load_file(file)
+        Dir.chdir(spec[:wdir]) if spec[:wdir]
+        cmd =
+          [
+           "\"#{spec[:path]}\"",
+           spec[:args] || '',
+           @argv.to_s,
+          ]
+        cmd.unshift(@conf[:exec]) if @conf[:exec]
+        system(cmd.join(' '))
+      else
+        err("'#{name}' not found.") if name
+        list
+      end
+    end
+
+    def help
+      print <<EOM
+Usage: #{@name} <name> ...
+Run a program or a path bound to <name> with specified arguments.
+You can find available <name> in the list below:
+EOM
+      list
+    end
+  end
+
+  class Help < Command
+    def do
+      commands = Launcher::COMMANDS
+      what = @argv.args[0]
+      cmd = commands.find{|x| x.to_s.split('::').last.downcase == what}
+      if cmd
+        cmd.new(@name, @conf, @dir, @argv).help
+      else
+        commands = commands.map{|x| x.to_s.split('::').last.downcase}
+        print <<EOM
+Usage: #{@name} [<name> | #{commands.join(' | ')}] ...
+See '#{@name} help <command>' for the description of each command.
+Available <name>:
+EOM
+        list
+      end
+    end
+
+    def help
+      print <<EOM
+Usage: #{@name} help <command>
+Show the usage of <command>.
+Available <command>:
+#{Launcher::COMMANDS.map{|x| x.to_s.split('::').last.downcase}.join("\n")}
+EOM
+    end
+  end
+
+  DEFAULT = {}
+  COMMANDS =
+    [
+     List,
+     Add,
+     Del,
+     Where,
+     Run,
+     Help,
+    ]
+
+  def initialize(name, conf, argv)
+    @name = name
+    @conf = DEFAULT.merge((conf && YAML.load_file(conf))||{})
+    @conf = @conf.merge(@conf[@name]||{})
+    @dir = @conf[:dir] || File.join(File.dirname(conf||''), @name)
+
+    cmd = COMMANDS.find{|x| x.to_s.split('::').last.downcase == argv.args[0]}
+    if !argv.args[0] || argv.args[0].empty?
+      cmd = Help
+    elsif !cmd
+      cmd = Run
+    else
+      argv.args.shift
+    end
+    cmd.new(@name, @conf, @dir, argv).do
+  end
+end
+
+Launcher.new(name, conf, GetOpt.new($*))
