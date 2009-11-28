@@ -1,5 +1,6 @@
 #! /usr/bin/env ruby
 $:.unshift(File.join(File.dirname($0), 'lib'))
+require 'rubygems'
 require 'getopt'
 
 argv = GetOpt.new($*, %w'

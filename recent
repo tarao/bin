@@ -1,5 +1,6 @@
 #! /usr/bin/env ruby
 $:.unshift(File.join(File.dirname($0), 'lib'))
+require 'rubygems'
 require 'getopt'
 
 dargv = { :time => 10, :user => false, :less => true }

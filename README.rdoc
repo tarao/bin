@@ -1,0 +1,9 @@
+= tarao's bin
+
+== Usage
+
+TODO
+
+== Requirements
+
+[gnn-rblibs] http://github.com/tarao/gnn-rblibs
