@@ -21,13 +21,20 @@ class Launcher
       @argv = argv
     end
 
+    def self.cmd_name
+      return self.to_s.split('::').last.downcase
+    end
+
+    def cmd_name
+      return self.class.cmd_name
+    end
+
     def list
       system("ls #{@dir}")
     end
 
     def err(what)
-      cmd = self.class.to_s.split('::').last.downcase
-      warn("#{@name} #{cmd}: #{what}")
+      warn("#{@name} #{cmd_name}: #{what}")
     end
 
     def check(obj)
@@ -188,15 +195,12 @@ EOM
 
   class Help < Command
     def do
-      commands = Launcher::COMMANDS
-      what = @argv.args[0]
-      cmd = commands.find{|x| x.to_s.split('::').last.downcase == what}
+      cmd = Launcher.find_cmd_class(@argv.args[0])
       if cmd
         cmd.new(@name, @conf, @dir, @argv).help
       else
-        commands = commands.map{|x| x.to_s.split('::').last.downcase}
         print <<EOM
-Usage: #{@name} [<name> | #{commands.join(' | ')}] ...
+Usage: #{@name} [<name> | #{Launcher.cmd_names.join(' | ')}] ...
 See '#{@name} help <command>' for the description of each command.
 Available <name>:
 EOM
@@ -209,7 +213,7 @@ EOM
 Usage: #{@name} help <command>
 Show the usage of <command>.
 Available <command>:
-#{Launcher::COMMANDS.map{|x| x.to_s.split('::').last.downcase}.join("\n")}
+#{Launcher.cmd_names.join("\n")}
 EOM
     end
   end
@@ -225,13 +229,21 @@ EOM
      Help,
     ]
 
+  def self.find_cmd_class(cmd)
+    return COMMANDS.find{|x| x.cmd_name == cmd}
+  end
+
+  def self.cmd_names
+    return COMMANDS.map{|x| x.cmd_name}
+  end
+
   def initialize(name, conf, argv)
     @name = name
     @conf = DEFAULT.merge((conf && YAML.load_file(conf))||{})
     @conf = @conf.merge(@conf[@name]||{})
     @dir = @conf[:dir] || File.join(File.dirname(conf||''), @name)
 
-    cmd = COMMANDS.find{|x| x.to_s.split('::').last.downcase == argv.args[0]}
+    cmd = self.class.find_cmd_class(argv.args[0])
     if !argv.args[0] || argv.args[0].empty?
       cmd = Help
     elsif !cmd
