@@ -71,18 +71,25 @@ EOM
         wdir = @argv.args.shift
       end
 
-      # program path
-      path = (check(:path => @argv.args.shift) || {})[:path]
-      return unless path
+      if @argv.args[0] == '--call'
+        # call
+        @argv.args.shift # drop '--call'
+        spec = { :call => @argv.args + @argv.rest }
+      else
+        # program path
+        path = (check(:path => @argv.args.shift) || {})[:path]
+        return unless path
 
-      # arguments
-      args = @argv.to_s
+        # arguments
+        args = @argv.to_s
 
-      # specification
-      spec = {
-        :path => path,
-        :args => args,
-      }
+        # specification
+        spec = {
+          :path => path,
+          :args => args,
+        }
+      end
+
       spec[:wdir] = wdir if wdir
 
       # write
@@ -94,6 +101,7 @@ EOM
     def help
       print <<EOM
 Usage: #{@name} add <name> [-w <working directory>] <path> ...
+       #{@name} add <name> [-w <working directory>] --call <name1> <name2> ...
 Register <path> as <name>.
 EOM
     end
@@ -146,14 +154,22 @@ EOM
       if name && File.exist?(file)
         spec = YAML.load_file(file)
         Dir.chdir(spec[:wdir]) if spec[:wdir]
-        cmd =
-          [
-           "\"#{spec[:path]}\"",
-           spec[:args] || '',
-           @argv.to_s,
-          ]
-        cmd.unshift(@conf[:exec]) if @conf[:exec]
-        system(cmd.join(' '))
+        if spec[:path]
+          cmd =
+            [
+             "\"#{spec[:path]}\"",
+             spec[:args] || '',
+             @argv.to_s,
+            ]
+          cmd.unshift(@conf[:exec]) if @conf[:exec]
+          system(cmd.join(' '))
+        elsif spec[:call] && spec[:call].is_a?(Array)
+          spec[:call].each do |name|
+            self.class.new(@name, @conf, @dir, GetOpt.new([name])).do
+          end
+        else
+          err("'#{name}' invalid specification.")
+        end
       else
         err("'#{name}' not found.") if name
         list
