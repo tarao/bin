@@ -1,0 +1,49 @@
+#! /usr/bin/env ruby
+require 'rubygems'
+require 'getopt'
+
+# from http://mercurial.selenic.com/wiki/GitConcepts
+rename = {
+  'pull'   => 'fetch',
+  'fetch'  => 'pull',
+  'reset'  => { '--hard' => [ 'revert', '-a', '--no-backup' ] },
+  'revert' => 'backout',
+  'add'    => { '-i' => 'record' },
+  # git commit --amend
+  'rebase' => { '' => [ 'rebase', '-d' ], '--interactive' => 'histedit' },
+  'stash'  => 'shelve',
+  # git cherry-pick
+  # git format-patch <commits>; git send-mail
+  # git am <mbox>
+}
+
+aliases = `git config -l`.select{|l| l.strip =~ /^alias\./}.map do |line|
+  line.strip =~ /^alias\.([^=]+)\s*=\s*(.+)$/ &&  [ $1, $2 ]
+end
+aliases = Hash[*aliases.select{|x|x}.flatten]
+
+argv = GetOpt.new($*)
+
+# resolve alias
+argv.args[0] = aliases[argv.args[0]] || argv.args[0]
+
+# resolve commands
+def resolve(hash, args)
+  return args if args.length == 0
+  head = hash[args[0]]
+  if head
+    if head.is_a?(Hash)
+      if head[args[1]]
+        return resolve(head, args[1..-1]) + args[2..-1]
+      elsif head['']
+        return head[''] + args[1..-1]
+      end
+    else
+      return [ head ] + args[1..-1]
+    end
+  end
+  return args
+end
+argv.args = resolve(rename, argv.args).flatten
+
+print(argv.to_s)
