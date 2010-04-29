@@ -123,7 +123,7 @@ vimopt = [ '--cmd', "runtime #{$vimfile[:escape]}" ] + vimopt if argv[:escape]
 vimopt += [ '-c', "set syntax=#{argv[:syntax]}" ] if argv[:syntax]
 
 if argv.args.length == 0  # read from standard input
-  input = argv[:nkf] ? "<(#{$bin[:nkf]})" : "<(#{$bin[:cat]})"
+  input = argv[:nkf] ? "=(#{$bin[:nkf]})" : "=(#{$bin[:cat]})"
   vimcmd = [ "#{$bin[:ruby]} #{$0} #{$vimrec}" ] if argv[:psub]
   argv[:stdin] = !argv[:psub]
 else                      # read from file
@@ -153,7 +153,7 @@ else                      # read from file
            "au! f BufReadPost <buffer=#{i}>", # remove autocmd
           ].join(' | ')
         ]
-      "<(#{$bin[:nkf]} #{GetOpt.escape(f)})"
+      "=(#{$bin[:nkf]} #{GetOpt.escape(f)})"
     end
     vimopt = ftype + vimopt
     input = files.join(' ')
