@@ -1,0 +1,23 @@
+#! /usr/bin/env ruby
+if $*.delete('-h') || $*.delete('--help')
+  print <<"EOM"
+Usage: #{$0} [-v] path...
+EOM
+  exit
+end
+
+verbose = $*.delete('-v') || $*.delete('--verbose')
+$*.each do |path|
+  dir = Dir.pwd
+  route = []
+  while true
+    path = File.expand_path(path, dir)
+    break if route.include?(path) # loop
+    break unless File.symlink?(path)
+    route << path
+    puts(path) if verbose
+    dir = File.dirname(path)
+    path = File.readlink(path)
+  end
+  puts(path)
+end
