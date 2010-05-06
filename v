@@ -18,11 +18,20 @@ $bin = {
   :cat   => 'cat',
   :bash  => 'bash',
   :zsh   => 'zsh',
+  :p7z    => '7z',
 }
+
+$archive =
+  [
+   '7z', 'zip', 'cab', 'arj', 'gz', 'bz2', 'tar', 'cpio', 'rpm', 'deb', 'rar',
+  ]
 
 $nkfopt = '-w'
 $nkfrec = '--run-nkf'
 $bin[:nkf] = "#{$bin[:ruby]} #{$0} #{$nkfrec}"
+
+$p7zrec = '--run-7z'
+$bin[:p7zrec] = "#{$bin[:ruby]} #{$0} #{$p7zrec}"
 
 $vimrec = '--run-vim'
 
@@ -36,6 +45,15 @@ $vimfile = {
 if $*[0] == $nkfrec
   $*.shift
   print(NKF.nkf($nkfopt, ARGF.read))
+  exit
+end
+
+### run 7z
+
+if $*[0] == $p7zrec
+  $*.shift
+  argv = GetOpt.new($*)
+  print(`#{$bin[:sh]} -c '</dev/tty #{$bin[:p7z]} e -so #{argv}' 2>/dev/null`)
   exit
 end
 
@@ -78,18 +96,21 @@ rtp = rtp.strip.split(',')
 
 dargv = { # default values
   :nkf => true,
+  :extract => path_exist?($bin[:p7z]),
   :escape => rtp.map{|v| "#{v}/#{$vimfile[:escape]}"}.find{|v| File.exist?(v)},
   :verbose => false,
+  :psub => path_exist?($bin[:bash]) || path_exist?($bin[:zsh]),
 }
+dargv[:extract] = dargv[:psub]
 argv = GetOpt.new($*, %w'
-  vim
+  psub
   s|syntax=s
   k|nkf
+  x|extract
   e|escape
   v|verbose
   h|help
 ', dargv)
-argv[:psub] = path_exist?($bin[:bash]) || path_exist?($bin[:zsh])
 argv[:shell] = ENV['SHELL'] || argv[:psub]
 
 if argv[:help]
@@ -99,6 +120,7 @@ Usage: #{File.basename($0)} [-s syntax] [-kevh] [--] file...
 Options:
   -s, --syntax   Set syntax.
   -k, --nkf      Use nkf (default: #{dargv[:nkf]}).
+  -x, --extract  Automatically extract archive files (default: dargv[:extract]}).
   -e, --escape   Manipulate ANSI escape sequences (default: #{dargv[:escape]}).
   -v, --verbose  Show extra information (default: #{dargv[:verbose]}).
   -h, --help     Show help.
@@ -138,22 +160,32 @@ else                      # read from file
   if !argv[:psub] && argv[:nkf]
     cmd.unshift("#{$bin[:cat]} #{input}")
     argv[:stdin] = true
-  elsif argv[:nkf]
+  else
     ftype = [ '--cmd', 'aug f' ] # new autogroup
     i=0
     files = files.map do |f|
+      detect = f
+      escaped = GetOpt.escape(f)
+      cat = argv[:nkf] ? "<(#{$bin[:nkf]} #{escaped})" : escaped
+      if argv[:extract] && $archive.include?((File.extname(f)||'')[1..-1])
+        filter = "#{$bin[:p7zrec]} #{escaped}"
+        filter += " | #{$bin[:nkf]}" if argv[:nkf]
+        cat = "<(#{filter})"
+        detect = f[0...-(File.extname(f).length)]
+      end
       i += 1
       ftype +=
         [ '--cmd',
           "au f BufReadPost <buffer=#{i}> " + # add autocmd
           [
-           "file #{f}",       # set filename of buffer i
+           "file #{detect}",  # set filename of buffer i
            'filetype detect', # auto detect filetype
+           detect != f && "file #{f}",
            'set buftype+=nofile',
            "au! f BufReadPost <buffer=#{i}>", # remove autocmd
-          ].join(' | ')
+          ].reject{|s| !s}.join(' | ')
         ]
-      "<(#{$bin[:nkf]} #{GetOpt.escape(f)})"
+      cat
     end
     vimopt = ftype + vimopt
     input = files.join(' ')
