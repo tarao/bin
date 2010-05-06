@@ -181,7 +181,6 @@ else                      # read from file
            "file #{detect}",  # set filename of buffer i
            'filetype detect', # auto detect filetype
            detect != f && "file #{f}",
-           'set buftype+=nofile',
            "au! f BufReadPost <buffer=#{i}>", # remove autocmd
           ].reject{|s| !s}.join(' | ')
         ]
