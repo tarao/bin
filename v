@@ -27,6 +27,11 @@ $archive =
   ]
 
 $nkfopt = '-w'
+$nkfopt = '-j' if ENV['LANG'] =~ /\.(?:jis|iso[-_]?2022[-_]?jp)/i
+$nkfopt = '-e' if ENV['LANG'] =~ /\.euc[-_]?jp/i
+$nkfopt = '-s' if ENV['LANG'] =~ /\.s(?:hift)?[-_]?jis/i
+$nkfopt = '-w16' if ENV['LANG'] =~ /\.utf[-_]?16/i
+
 $nkfrec = '--run-nkf'
 $bin[:nkf] = "#{$bin[:ruby]} #{$0} #{$nkfrec}"
 
