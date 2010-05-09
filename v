@@ -14,7 +14,6 @@ $bin = {
   :echo  => 'echo',
   :test  => 'test',
   :which => '/usr/bin/which',
-  :wc    => 'wc',
   :cat   => 'cat',
   :bash  => 'bash',
   :zsh   => 'zsh',
@@ -82,7 +81,8 @@ end
 #### main
 
 def path_exist?(name) # search path
-  return `#{$bin[:which]} #{name} | #{$bin[:wc]} -l`.to_i != 0 ? name : nil
+  path = `#{$bin[:which]} #{name}`.strip
+  return !path.empty? && system("test -x \"#{path}\"") && path
 end
 
 def warn_if(cond, msg)
@@ -125,7 +125,7 @@ Usage: #{File.basename($0)} [-s syntax] [-kevh] [--] file...
 Options:
   -s, --syntax   Set syntax.
   -k, --nkf      Use nkf (default: #{dargv[:nkf]}).
-  -x, --extract  Automatically extract archive files (default: dargv[:extract]}).
+  -x, --extract  Automatically extract archive files (default: #{dargv[:extract]}).
   -e, --escape   Manipulate ANSI escape sequences (default: #{dargv[:escape]}).
   -v, --verbose  Show extra information (default: #{dargv[:verbose]}).
   -h, --help     Show help.
