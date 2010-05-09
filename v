@@ -139,12 +139,12 @@ vimopt =
   [
    '--cmd',
    'let no_plugin_maps = 1',
-   '-c',
+   '--cmd',
    "runtime! #{$vimfile[:less]}",
   ] # default options from less.sh
 
 # ANSI escape sequence
-vimopt = [ '--cmd', "runtime #{$vimfile[:escape]}" ] + vimopt if argv[:escape]
+vimopt += [ '-c', "runtime #{$vimfile[:escape]}" ] if argv[:escape]
 
 # set syntax explicitly
 vimopt += [ '-c', "set syntax=#{argv[:syntax]}" ] if argv[:syntax]
