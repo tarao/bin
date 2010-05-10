@@ -34,6 +34,9 @@ $nkfopt = '-w16' if ENV['LANG'] =~ /\.utf[-_]?16/i
 $nkfrec = '--run-nkf'
 $bin[:nkf] = "#{$bin[:ruby]} #{$0} #{$nkfrec}"
 
+$nkfguess = '--run-nkf-guess'
+$bin[:nkfguess] = "#{$bin[:ruby]} #{$0} #{$nkfguess}"
+
 $p7zrec = '--run-7z'
 $bin[:p7zrec] = "#{$bin[:ruby]} #{$0} #{$p7zrec}"
 
@@ -51,6 +54,25 @@ if $*[0] == $nkfrec
   print(NKF.nkf($nkfopt, ARGF.read))
   exit
 end
+
+#### run nkf guess
+
+if $*[0] == $nkfguess
+  $*.shift
+  print(NKF.guess(ARGF.read))
+  exit
+end
+
+$fenc = {
+  NKF::JIS     => 'iso-2022-jp',
+  NKF::EUC     => 'euc-jp',
+  NKF::SJIS    => 'sjis',
+  NKF::BINARY  => nil,
+  NKF::UNKNOWN => nil,
+  NKF::ASCII   => 'utf-8',
+  NKF::UTF8    => 'utf-8',
+  NKF::UTF16   => 'utf-16',
+}
 
 ### run 7z
 
@@ -169,8 +191,8 @@ if files.length == 0  # read from standard input
   vimcmd = [ "#{$bin[:ruby]} #{$0} #{$vimrec}" ] if argv[:psub]
   argv[:stdin] = !argv[:psub]
 else                      # read from file
-  input = files.map{|f| GetOpt.escape(f)}.join(' ')
   if !argv[:psub] && argv[:nkf]
+    input = files.map{|f| GetOpt.escape(f)}.join(' ')
     cmd.unshift("#{$bin[:cat]} #{input}")
     argv[:stdin] = true
   else
@@ -178,26 +200,42 @@ else                      # read from file
     i=0
     files = files.map do |f|
       detect = f
-      escaped = GetOpt.escape(f)
-      cat = argv[:nkf] ? "<(#{$bin[:nkf]} #{escaped})" : escaped
+      file = GetOpt.escape(f)
+      fenc = nil
+
+      translators = []
+      extractors = []
+      translators << $bin[:nkf] if argv[:nkf]
       if argv[:extract] && $archive.include?((File.extname(f)||'')[1..-1])
-        filter = "#{$bin[:p7zrec]} #{escaped}"
-        filter += " | #{$bin[:nkf]}" if argv[:nkf]
-        cat = "<(#{filter})"
+        extractors << $bin[:p7zrec]
         detect = f[0...-(File.extname(f).length)]
       end
+
       i += 1
-      ftype +=
-        [ '--cmd',
-          "au f BufReadPost <buffer=#{i}> " + # add autocmd
-          [
-           "file #{detect}",  # set filename of buffer i
-           'filetype detect', # auto detect filetype
-           detect != f && "file #{f}",
-           "au! f BufReadPost <buffer=#{i}>", # remove autocmd
-          ].reject{|s| !s}.join(' | ')
-        ]
-      cat
+      filters = extractors + translators
+      if !filters.empty?
+        if argv[:nkf]
+          g = extractors + [ $bin[:nkfguess] ]
+          fenc = $fenc[`#{[ g[0]+' '+file, *g[1..-1] ].join('|')}`.to_i]
+        end
+
+        ftype +=
+          [ '--cmd',
+            "au f BufReadPost <buffer=#{i}> " + # add autocmd
+            [
+             "file #{detect}",  # set filename of buffer i
+             'filetype detect', # auto detect filetype
+             detect != f && "file #{f}",
+             fenc && 'set modifiable',
+             fenc && "setl fenc=#{fenc}",
+             fenc && 'set nomodifiable',
+             "au! f BufReadPost <buffer=#{i}>", # remove autocmd
+            ].reject{|s| !s}.join('|')
+          ]
+         file = "<(#{[ filters[0]+' '+file, *filters[1..-1] ].join('|')})"
+      end
+
+      file
     end
     vimopt = ftype + vimopt
     input = files.join(' ')
@@ -214,9 +252,9 @@ vimcmd << input
 cmd << vimcmd.join(' ')
 
 if argv[:stdin]
-  warn("command: #{cmd.join(' | ')}") if argv[:verbose]
-  system(cmd.join(' | '))
+  warn("command: #{cmd.join('|')}") if argv[:verbose]
+  system(cmd.join('|'))
 else
-  warn("command: #{cmd.join(' | ')}") if argv[:verbose]
-  system(argv[:shell], '-c', cmd.join(' | '))
+  warn("command: #{cmd.join('|')}") if argv[:verbose]
+  system(argv[:shell], '-c', cmd.join('|'))
 end
