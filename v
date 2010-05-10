@@ -133,6 +133,21 @@ EOM
   exit
 end
 
+files = argv.args + argv.rest
+rejected = false
+files.reject! do |f|
+  r = warn_if(!File.exist?(f), "#{f}: no such file or directory")
+  r ||= warn_if(File.directory?(f), "#{f} is a directory")
+  rejected ||= r
+  r
+end # exclude non-existing files
+
+if files.size < 1 && system("#{$bin[:test]} -t 0")
+  msg = "Missing filename (\"#{File.basename($0)} --help\" for help)"
+  puts(msg) unless rejected
+  exit
+end # no input
+
 cmd = []
 vimcmd = [ $bin[:vim] ]
 vimopt =
@@ -149,18 +164,11 @@ vimopt += [ '-c', "runtime #{$vimfile[:escape]}" ] if argv[:escape]
 # set syntax explicitly
 vimopt += [ '-c', "set syntax=#{argv[:syntax]}" ] if argv[:syntax]
 
-if argv.args.length == 0  # read from standard input
+if files.length == 0  # read from standard input
   input = argv[:nkf] ? "<(#{$bin[:nkf]})" : "<(#{$bin[:cat]})"
   vimcmd = [ "#{$bin[:ruby]} #{$0} #{$vimrec}" ] if argv[:psub]
   argv[:stdin] = !argv[:psub]
 else                      # read from file
-  files = argv.args + argv.rest
-  files.reject! do |f|
-    warn_if(!File.exist?(f), "#{f}: no such file or directory") ||
-    warn_if(File.directory?(f), "#{f} is a directory")
-  end # exclude non-existing files
-  exit(1) if files.size < 1 # no file to read
-
   input = files.map{|f| GetOpt.escape(f)}.join(' ')
   if !argv[:psub] && argv[:nkf]
     cmd.unshift("#{$bin[:cat]} #{input}")
