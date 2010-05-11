@@ -128,22 +128,25 @@ end
 
 $vinit = <<EOS
 let g:ofencs=0
+aug vinit
 fu VInit(list)
   for x in a:list
     exe 'au vinit BufReadPre <buffer=' . x.i . '> sil if !g:ofencs|let g:ofencs=&fencs|en|se fencs='
-    let c='au vinit BufReadPost <buffer=' . x.i . '> sil'
-    let c.='|sil f ' . x.d . '|filet detect'
+    let c='au vinit BufReadPost <buffer=' . x.i . '> sil|sil f ' . x.d . '|filet detect'
     if has_key(x,'f')
       let c.='|sil f' . x.f
     en
-    if has_key(x,'e')
-      let c.='|se ma'
-      let c.='|setl fenc=' . x.e
-      let c.='|se noma'
-    en
-    let c.='|exe ''se fencs='' . g:ofencs'
-    let c.='|au! vinit BufReadPost <buffer=' . x.i . '>'
+    let c.='|exe ''se fencs='' . g:ofencs|au! vinit BufReadPost <buffer=' . x.i . '>'
     exe c
+  endfo
+endf
+EOS
+
+$vfenc = <<EOS
+aug vfenc
+fu VFEnc(list)
+  for x in a:list
+    exe 'au vfenc BufReadPost <buffer=' . x.i . '> sil|se ma|setl fenc=' . x.e . '|se noma|au! vfenc BufReadPost <buffer=' . x.i . '>'
   endfo
 endf
 EOS
@@ -241,13 +244,14 @@ if files.length == 0  # read from standard input
   input = argv[:nkf] ? "<(#{$bin[:nkf]})" : "<(#{$bin[:cat]})"
   vimcmd = [ "#{$bin[:ruby]} #{$0} #{$vimrec}" ] if argv[:psub]
   argv[:stdin] = !argv[:psub]
-else                      # read from file
+else                  # read from file
   if !argv[:psub] && argv[:nkf]
     input = files.map{|f| GetOpt.escape(f)}.join(' ')
     cmd.unshift("#{$bin[:cat]} #{input}")
     argv[:stdin] = true
   else
-    ftype=[]
+    inits=[]
+    fencs=[]
     i=0
 
     files = files.map do |f|
@@ -270,7 +274,6 @@ else                      # read from file
         nkf = true if $nkfauto.include?(fenc) # enable automatically
         nkf = false unless fenc # binary or unknown
       end
-
       translators << $bin[:nkf] if nkf
 
       i += 1
@@ -279,19 +282,22 @@ else                      # read from file
         file = "<(#{[ filters[0]+' '+file, *filters[1..-1] ].join('|')})"
       end
 
-      ftype << {
-        :i => i, :e => fenc, :d => detect, :f => detect!=f && f,
+      inits << {
+        :i => i, :d => detect, :f => detect!=f && f,
       }.delete_if{|k,v| !v} unless filters.empty?
+      fencs << { :i => i, :e => fenc } if fenc
 
       file
     end
 
-    vimopt +=
-      [
-       '--cmd', 'aug vinit',
-       '--cmd', $vinit.gsub(/^\s+/,''),
-       '--cmd', 'call VInit(' + ftype.to_vim + ')',
-      ] unless ftype.empty?
+    [ :Init, :FEnc, ].each do |x|
+      arr = eval(x.to_s.downcase+'s')
+      vimopt +=
+        [ '--cmd', eval('$v'+x.to_s.downcase).gsub(/^\s+/,''),
+          '--cmd', 'call V'+x.to_s+'('+arr.to_vim+')',
+        ] unless arr.empty?
+    end
+
     input = files.join(' ')
   end
 end
