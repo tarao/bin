@@ -30,6 +30,7 @@ $nkfopt = '-j' if ENV['LANG'] =~ /\.(?:jis|iso[-_]?2022[-_]?jp)/i
 $nkfopt = '-e' if ENV['LANG'] =~ /\.euc[-_]?jp/i
 $nkfopt = '-s' if ENV['LANG'] =~ /\.s(?:hift)?[-_]?jis/i
 $nkfopt = '-w16' if ENV['LANG'] =~ /\.utf[-_]?16/i
+$nkfauto = [ 'iso-2022-jp' ]
 
 $nkfrec = '--run-nkf'
 $bin[:nkf] = "#{$bin[:ruby]} #{$0} #{$nkfrec}"
@@ -111,24 +112,53 @@ def warn_if(cond, msg)
   return cond && (warn(msg) || true)
 end
 
-# vim runtimepath
-rtpcmd =
-  [
-   "#{$bin[:vim]} -e -s",
-   "--cmd 'exe \"silent !#{$bin[:echo]} \" . &runtimepath'",
-   "--cmd q",
+# vim runtime
+
+$rtpcmd =
+  [ "#{$bin[:vim]} -e -s",
+    "--cmd 'exe \"silent !#{$bin[:echo]} \" . &runtimepath'",
+    "--cmd q",
   ].join(' ')
-rtp = `#{rtpcmd}`
-rtp = rtp.strip.split(',')
+$rtp = `#{$rtpcmd}`
+$rtp = $rtp.strip.split(',')
+
+def rtp_find(runtime)
+  return $rtp.map{|v| "#{v}/#{runtime}"}.find{|v| File.exist?(v)}
+end
+
+$vinit = <<EOS
+let g:ofencs=0
+fu VInit(list)
+  for x in a:list
+    if has_key(x,'n')
+      exe 'au vinit BufReadPre <buffer=' . x.i . '> sil if !g:ofencs|let g:ofencs=&fencs|en|se fencs='
+    en
+    let c='au vinit BufReadPost <buffer=' . x.i . '> sil'
+    if has_key(x,'d')
+      let c.='|sil f ' . x.d . '|filet detect'
+    en
+    if has_key(x,'f')
+      let c.='|sil f' . x.f
+    en
+    if has_key(x,'e')
+      let c.='|se ma'
+      let c.='|setl fenc=' . x.e
+      let c.='|se noma'
+    en
+    if has_key(x,'n')
+      let c.='|exe ''se fencs='' . g:ofencs'
+    en
+    let c.='|au! vinit BufReadPost <buffer=' . x.i . '>'
+    exe c
+  endfo
+endf
+EOS
+
+# commandline arguments
 
 dargv = { # default values
-  :nkf => true,
-  :extract => path_exist?($bin[:p7z]),
-  :escape => rtp.map{|v| "#{v}/#{$vimfile[:escape]}"}.find{|v| File.exist?(v)},
-  :verbose => false,
-  :psub => path_exist?($bin[:bash]) || path_exist?($bin[:zsh]),
+  :psub    => path_exist?($bin[:bash]) || path_exist?($bin[:zsh]),
 }
-dargv[:extract] = dargv[:psub]
 argv = GetOpt.new($*, %w'
   psub
   s|syntax=s
@@ -146,15 +176,25 @@ if argv[:help]
 Usage: #{File.basename($0)} [-s syntax] [-kevh] [--] file...
 Options:
   -s, --syntax   Set syntax.
-  -k, --nkf      Use nkf (default: #{dargv[:nkf]}).
-  -x, --extract  Automatically extract archive files (default: #{dargv[:extract]}).
-  -e, --escape   Manipulate ANSI escape sequences (default: #{dargv[:escape]}).
+  -k, --nkf      Use nkf.
+  -x, --extract  Extract archive files.
+  -e, --escape   Manipulate ANSI escape sequences.
   -v, --verbose  Show extra information (default: #{dargv[:verbose]}).
   -h, --help     Show help.
 EOM
   exit
 end
 
+# capability
+[
+ [ argv[:extract] && !path_exist?($bin[:p7z]), $bin[:p7z], :extract ],
+ [ argv[:escape] && !rtp_find($vimfile[:escape]), $vimfile[:escape], :escape ],
+].each do |b, f, o|
+  argv[o] = false if b
+  warn_if(b, "'#{f}' not found; --#{o} option switched off")
+end
+
+# exclude non-existing files
 files = argv.args + argv.rest
 rejected = false
 files.reject! do |f|
@@ -162,13 +202,14 @@ files.reject! do |f|
   r ||= warn_if(File.directory?(f), "#{f} is a directory")
   rejected ||= r
   r
-end # exclude non-existing files
+end
 
+# no input
 if files.size < 1 && system("#{$bin[:test]} -t 0")
   msg = "Missing filename (\"#{File.basename($0)} --help\" for help)"
   puts(msg) unless rejected
   exit
-end # no input
+end
 
 cmd = []
 vimcmd = [ $bin[:vim] ]
@@ -186,6 +227,22 @@ vimopt += [ '-c', "runtime #{$vimfile[:escape]}" ] if argv[:escape]
 # set syntax explicitly
 vimopt += [ '-c', "set syntax=#{argv[:syntax]}" ] if argv[:syntax]
 
+class Object
+  def to_vim
+    if self.is_a?(String) || self.is_a?(Symbol)
+      return "'"+self.to_s+"'"
+    elsif self.is_a?(Array)
+      return '['+self.map{|x|x.to_vim}.join(',')+']'
+    elsif self.is_a?(Hash)
+      return '{'+self.keys.map{|k|k.to_vim+':'+self[k].to_vim}.join(',')+'}'
+    elsif self.is_a?(TrueClass) || self.is_a?(FalseClass)
+      return (self ? 1 : 0).to_s
+    else
+      return self.to_s
+    end
+  end
+end
+
 if files.length == 0  # read from standard input
   input = argv[:nkf] ? "<(#{$bin[:nkf]})" : "<(#{$bin[:cat]})"
   vimcmd = [ "#{$bin[:ruby]} #{$0} #{$vimrec}" ] if argv[:psub]
@@ -196,55 +253,59 @@ else                      # read from file
     cmd.unshift("#{$bin[:cat]} #{input}")
     argv[:stdin] = true
   else
-    ftype = [ '--cmd', 'aug f' ] # new autogroup
+    ftype=[]
     i=0
+
     files = files.map do |f|
       detect = f
       file = GetOpt.escape(f)
       fenc = nil
+      nkf = argv[:nkf]
 
       translators = []
       extractors = []
-      translators << $bin[:nkf] if argv[:nkf]
+
       if argv[:extract] && $archive.include?((File.extname(f)||'')[1..-1])
         extractors << $bin[:p7zrec]
         detect = f[0...-(File.extname(f).length)]
       end
 
+      unless nkf === false
+        g = extractors + [ $bin[:nkfguess] ]
+        fenc = $fenc[`#{[ g[0]+' '+file, *g[1..-1] ].join('|')}`.to_i]
+        nkf = true if $nkfauto.include?(fenc) # enable automatically
+        nkf = false unless fenc # binary or unknown
+      end
+
+      translators << $bin[:nkf] if nkf
+
       i += 1
       filters = extractors + translators
       if !filters.empty?
-        if argv[:nkf]
-          g = extractors + [ $bin[:nkfguess] ]
-          fenc = $fenc[`#{[ g[0]+' '+file, *g[1..-1] ].join('|')}`.to_i]
-        end
-
-        ftype +=
-          [ '--cmd',
-            "au f BufReadPost <buffer=#{i}> " + # add autocmd
-            [
-             "file #{detect}",  # set filename of buffer i
-             'filetype detect', # auto detect filetype
-             detect != f && "file #{f}",
-             fenc && 'set modifiable',
-             fenc && "setl fenc=#{fenc}",
-             fenc && 'set nomodifiable',
-             "au! f BufReadPost <buffer=#{i}>", # remove autocmd
-            ].reject{|s| !s}.join('|')
-          ]
-         file = "<(#{[ filters[0]+' '+file, *filters[1..-1] ].join('|')})"
+        file = "<(#{[ filters[0]+' '+file, *filters[1..-1] ].join('|')})"
       end
+
+      ftype << {
+        :i => i, :e => fenc, :n => nkf,
+        :d => !filters.empty? && detect, :f => detect!=f && f,
+      }.delete_if{|k,v| !v}
 
       file
     end
-    vimopt = ftype + vimopt
+
+    vimopt +=
+      [
+       '--cmd', 'aug vinit',
+       '--cmd', $vinit.gsub(/^\s+/,''),
+       '--cmd', 'call VInit(' + ftype.to_vim + ')',
+      ]
     input = files.join(' ')
   end
 end
 
 if argv[:stdin]
   input = '-'
-  cmd << "#{$bin[:nkf]} #{$nkfopt}" if argv[:nkf]
+  cmd << "#{$bin[:nkf]}" if argv[:nkf]
 end
 
 vimcmd += vimopt.map{|v| GetOpt.escape(v)}
