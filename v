@@ -130,13 +130,9 @@ $vinit = <<EOS
 let g:ofencs=0
 fu VInit(list)
   for x in a:list
-    if has_key(x,'n')
-      exe 'au vinit BufReadPre <buffer=' . x.i . '> sil if !g:ofencs|let g:ofencs=&fencs|en|se fencs='
-    en
+    exe 'au vinit BufReadPre <buffer=' . x.i . '> sil if !g:ofencs|let g:ofencs=&fencs|en|se fencs='
     let c='au vinit BufReadPost <buffer=' . x.i . '> sil'
-    if has_key(x,'d')
-      let c.='|sil f ' . x.d . '|filet detect'
-    en
+    let c.='|sil f ' . x.d . '|filet detect'
     if has_key(x,'f')
       let c.='|sil f' . x.f
     en
@@ -145,9 +141,7 @@ fu VInit(list)
       let c.='|setl fenc=' . x.e
       let c.='|se noma'
     en
-    if has_key(x,'n')
-      let c.='|exe ''se fencs='' . g:ofencs'
-    en
+    let c.='|exe ''se fencs='' . g:ofencs'
     let c.='|au! vinit BufReadPost <buffer=' . x.i . '>'
     exe c
   endfo
@@ -157,7 +151,7 @@ EOS
 # commandline arguments
 
 dargv = { # default values
-  :psub    => path_exist?($bin[:bash]) || path_exist?($bin[:zsh]),
+  :psub => path_exist?($bin[:bash]) || path_exist?($bin[:zsh]),
 }
 argv = GetOpt.new($*, %w'
   psub
@@ -286,9 +280,8 @@ else                      # read from file
       end
 
       ftype << {
-        :i => i, :e => fenc, :n => nkf,
-        :d => !filters.empty? && detect, :f => detect!=f && f,
-      }.delete_if{|k,v| !v}
+        :i => i, :e => fenc, :d => detect, :f => detect!=f && f,
+      }.delete_if{|k,v| !v} unless filters.empty?
 
       file
     end
@@ -298,7 +291,7 @@ else                      # read from file
        '--cmd', 'aug vinit',
        '--cmd', $vinit.gsub(/^\s+/,''),
        '--cmd', 'call VInit(' + ftype.to_vim + ')',
-      ]
+      ] unless ftype.empty?
     input = files.join(' ')
   end
 end
