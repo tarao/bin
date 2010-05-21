@@ -154,7 +154,8 @@ EOS
 # commandline arguments
 
 dargv = { # default values
-  :psub => path_exist?($bin[:bash]) || path_exist?($bin[:zsh]),
+  :psub   => path_exist?($bin[:bash]) || path_exist?($bin[:zsh]),
+  :escape => true,
 }
 argv = GetOpt.new($*, %w'
   psub
