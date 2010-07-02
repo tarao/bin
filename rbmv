@@ -4,48 +4,88 @@ begin
   require 'rubygems'
 rescue LoadError
 end
+require 'generator'
 require 'getopt'
+require 'dir/each_leaf'
 
 argv = GetOpt.new($*, %w'
+  i|stdin
+  l|leaf
   d|dry
-  l|ls=s
-  o|option=s
+  s|silent
   h|help
-', { :ls => 'ls -1b', :option => '' })
+')
 
 if argv[:help]
+  name = File.basename($0)
   print <<"EOM"
-Usage: rbmv [-d] [-l="ls -1b"] [-o=<none>] pattern replacement
-When --dry is specified, rbmv will act as:
-  <ls> | xargs -i rbsub -s '{}' '<pattern>' '\\"{}\\" -> \\"<replacement>\\"'
-otherwise, rbmv will act as:
-  <ls> | xargs -i rbsub -sx '{}' '<pattern>' 'mv <opt> \\"{}\\" \\"<replacement>\\"'
+Usage: #{name} [OPTIONS] PATTERN REPLACEMENT
+  Renames files matched by PATTERN. The new name is specified by REPLACEMENT,
+  which may contain Ruby expression as \#{expression} and n-th matched string
+  as \#{$1}. The syntax of PATTERN is either '/pattern string/L' where L
+  represents options, or just 'pattern string', which is treated as
+  '/pattern string/' with no option. Target files of matching are all files in
+  the current directory (including subdirectories with -l option) unless they
+  are supplied in each line of the standard input with -i option. If the
+  destination file exists, a prompt will be shown to ask whether it should be
+  overwritten, or just skipped when -i option is used.
 Options:
-  -d, --dry      print the result but do not actually rename
-  -l, --ls       command to make a list of paths
-  -o, --opt      options for mv command
+  -i, --stdin  read file list from standard input
+  -l, --leaf   look into subdirectories and do not match directories themselves
+  -d, --dry    do nothing but show what is going to be done without this option
+  -f, --force  force overwriting
 Example:
-  [1] rbmv '/.*(\\d\\d\\d\\d-\\d\\d-\\d\\d).*(\\....)/' '\#\{$1\}\#\{$2\}'
-    "aaa2007-10-14bbb.ext" -> "2007-10-14.ext"
-  [2] rbmv '/(.*)\\.PDF/i' '\#\{$1.upcase\}.pdf'
-    "something.pdf" -> "SOMETHING.pdf"
+  [1] #{name} '.*(\\d\\d\\d\\d-\\d\\d-\\d\\d).*(\\....)' '$1$2'
+    'aaa2007-10-14bbb.ext' -> '2007-10-14.ext'
+    '2010-07-02T16:30:26Z.html' -> '2010-07-02.htm'
+  [2] #{name} '/(.*)(\\.pdf)/i' '\#\{$1.upcase\}\#{$2}'
+    'something.pdf' -> 'SOMETHING.pdf'
+    'anotherone.PDF' -> 'ANOTHERONE.PDF'
 EOM
   exit
 end
 
-pat, rep = argv.args + argv.rest
-if argv[:dry]
-  cmd =
-    [
-     argv[:ls],
-     "xargs -i rbsub -s '{}' '#{pat}' '\\\"{}\\\" -> \\\"#{rep}\\\"'"
-    ].join(' | ')
-else
-  mvopt = argv[:option]
-  cmd =
-    [
-     argv[:ls],
-     "xargs -i rbsub -sx '{}' '#{pat}' 'mv #{mvopt} \\\"{}\\\" \\\"#{rep}\\\"'"
-    ].join(' | ')
+def make_action(p, r, d, f, i)
+  def msg(f, t); return "'#{f}' -> '#{t}'" end
+  act = proc{|from, to| File.rename(from, to)}
+  info = proc{|from, to| puts(msg(from, to))}
+  warn = proc{|from,to| $stderr.print('[overwriting]: '); true}
+  act = info if d
+  ask = proc do |from,to|
+    print("overwrite '#{to}' by '#{from}'? [y/n]: ")
+    gets =~ /^y/
+  end
+  skip = proc{|from,to| $stderr.puts("[skip]: #{msg(from, to)}")}
+  ask = skip if i
+  warn = ask unless d
+
+  regex = instance_eval(p)
+  r = "\"#{r}\""
+  return proc do |file|
+    if file =~ regex
+      dst = instance_eval(r)
+      dir = File.dirname(file)
+      dst = File.join(dir, dst) if dir != '.' || file =~ /^\./
+      begin
+        act.call(file, dst) if !File.exist?(dst) || f || warn.call(file, dst)
+      rescue => e
+        $stderr.puts(e)
+      end
+    end
+  end
 end
-system(cmd)
+
+p, r = argv.args + argv.rest
+p = '/'+p+'/' unless p =~ /^\/.*\/$/
+r = r.gsub(/(\$\d+)/){|m| '#{'+m+'}'} if r =~ /^(?:\$\d+)+$/
+action = make_action(p, r, argv[:dry], argv[:force], argv[:stdin])
+
+FLAGS = File::FNM_PATHNAME|File::FNM_DOTMATCH
+if argv[:stdin]
+  $stdin.read.each_line{|line| action.call(line.strip)}
+elsif argv[:leaf]
+  g = Generator.new{|g| Dir.each_leaf('.', FLAGS){|x| g.yield(x)}}.sort
+  g.each(&action)
+else
+  Dir.glob('*', FLAGS).reject{|f| f=~ /^\/\.+$/}.sort.each(&action)
+end
