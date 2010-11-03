@@ -153,8 +153,11 @@ EOS
 
 # commandline arguments
 
+zsh = path_exist?($bin[:zsh])
+bash = path_exist?($bin[:bash])
+
 dargv = { # default values
-  :psub   => path_exist?($bin[:bash]) || path_exist?($bin[:zsh]),
+  :psub   => path_exist?($bin[:zsh]) || path_exist?($bin[:bash]),
   :escape => true,
 }
 argv = GetOpt.new($*, %w'
@@ -191,6 +194,8 @@ end
   argv[o] = false if b
   warn_if(b, "'#{f}' not found; --#{o} option switched off")
 end
+
+psub = argv[:shell] == bash ? '<(%s)' : '=(%s)'
 
 # exclude non-existing files
 files = argv.args + argv.rest
@@ -242,8 +247,13 @@ class Object
 end
 
 if files.length == 0  # read from standard input
-  input = argv[:nkf] ? "<(#{$bin[:nkf]})" : "<(#{$bin[:cat]})"
+  input = argv[:nkf] ? (psub % $bin[:nkf]) : (psub % $bin[:cat])
   vimcmd = [ "#{$bin[:ruby]} #{$0} #{$vimrec}" ] if argv[:psub]
+  vimopt += [ '--cmd', 'au BufReadPre * filet off' ]
+  vimopt += [ '-c', [ 'sil f [stdin]','redr', 'f',
+                      'if !exists("ansi_escape_used")|filet detect|endif',
+                    ].join('|')
+            ] # rename
   argv[:stdin] = !argv[:psub]
 else                  # read from file
   if !argv[:psub] && argv[:nkf]
