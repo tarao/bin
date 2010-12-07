@@ -1,0 +1,8 @@
+#! /usr/bin/env zsh
+
+[[ -z "$GIT_HTTP_PROXY" ]] && GIT_HTTP_PROXY=corkscrew
+
+local proxy; proxy="$http_proxy"
+proxy="${http_proxy#http://}"; proxy="${proxy%/}"
+proxy=(${(s.:.)proxy})
+"$GIT_HTTP_PROXY" "$proxy[1]" "$proxy[2]" $@
