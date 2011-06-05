@@ -1,0 +1,105 @@
+#! /usr/bin/env ruby
+require 'yaml'
+
+$conf = File.join(ENV['HOME'], '.'+File.basename($0)+'.yml')
+
+def parse_opt(args)
+  program = File.basename($0)
+  args[0] = 'help' unless args[0]
+  cmd = args[1]
+
+  case args[0]
+  when 'help', '?'
+    print <<"EOM"
+Usage: #{program} help
+       #{program} show|inc|dec|set command [arg]
+       #{program} command [args...]
+Command:
+  help                Show help message.
+  show command        Show skip count of command.
+  inc command         Increment skip count of command.
+  dec command         Decrement skip count of command.
+  set command arg     Set skip count of command to arg.
+  command [args...]   Run command if skip count is 0 or decrement skip count.
+EOM
+    return []
+  when 'inc', '++'
+    return [ cmd, :inc, :show ]
+  when 'dec', '--'
+    return [ cmd, :dec, :show ]
+  when 'set', '!'
+    return [ cmd, [ :set, args[2] ], :show ]
+  when 'show'
+    return [ cmd, :show ]
+  else
+    return [ args[0], :run ]
+  end
+end
+
+class Counter
+  def initialize(conf, cmd)
+    @conf = File.expand_path(conf)
+    @cmd = File.basename(cmd)
+    @hash = YAML.load_file(@conf) rescue {}
+  end
+
+  def set(val)
+    val = 0 if val < 0
+    @hash[@cmd] = val
+    open(@conf, 'w'){|io| io.print(YAML.dump(@hash))}
+    return val
+  end
+
+  def get() return @hash[@cmd] || 0 end
+
+  def inc() return set(get+1) end
+  def dec() return set(get-1) end
+end
+
+class Action
+  class Context
+    attr_reader :args, :counter
+
+    def initialize(conf, args)
+      @conf = conf
+      @args = args
+    end
+
+    def set_cmd(cmd)
+      @counter = Counter.new(@conf, cmd)
+    end
+  end
+
+  def initialize(ctx)
+    @ctx = ctx
+    yield(self) if block_given?
+  end
+
+  def act(what)
+    args = []
+    what, *args = what if what.is_a?(Array)
+
+    if what.is_a?(Symbol)
+      send(what, *args)
+    else
+      @ctx.set_cmd(what)
+    end
+  end
+
+  def inc() @ctx.counter.inc() end
+  def dec() @ctx.counter.dec() end
+  def set(val) @ctx.counter.set(val.to_i) end
+  def show() puts(@ctx.counter.get) end
+
+  def run()
+    if @ctx.counter.get <= 0
+      system(*@ctx.args)
+    else
+      dec
+    end
+  end
+end
+
+Action.new(Action::Context.new($conf, $*)) do |action|
+  parse_opt($*).each{|x| action.act(x)}
+end
